@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { defaultZoneSetting, ZoneSetting } from "../util/zoneSettings";
 import { Setting } from ".";
 import { Backend, RGBMode } from "../util";
 
 export const useRgb = () => {
+  const [zoneSettings, setZoneSettings] = useState(Setting.zoneSettings);
   const [hue, setHue] = useState<number>(Setting.hue);
   const [hue2, setHue2] = useState<number>(Setting.hue2);
   const [saturation, setSaturation] = useState<number>(Setting.saturation);
@@ -27,6 +29,7 @@ export const useRgb = () => {
   useEffect(() => {
     // Listen for configuration changes | 监听配置变更
     const unsubscribe = Setting.onSettingChange(() => {
+      setZoneSettings(Setting.zoneSettings);
       setHue(Setting.hue);
       setHue2(Setting.hue2);
       setSaturation(Setting.saturation);
@@ -89,7 +92,11 @@ export const useRgb = () => {
   const updateEnableControl = async (enableControl: boolean) => {
     setEnableControl(enableControl);
     Setting.enableControl = enableControl;
-    await Backend.applySettings({ isInit: true });
+    if (!enableControl && Setting.deviceCapabilities?.control_disable_turns_off) {
+      await Backend.turnOffLeds();
+    } else {
+      await Backend.applySettings({ isInit: true });
+    }
   };
 
   const updateLedEnabled = async (ledEnabled: boolean) => {
@@ -134,7 +141,16 @@ export const useRgb = () => {
     await Backend.applySettings();
   };
 
+  const updateZone = async (id: string, update: Partial<ZoneSetting>, apply = true) => {
+    const settings = { ...Setting.zoneSettings, [id]: { ...(Setting.zoneSettings[id] ?? defaultZoneSetting), ...update } };
+    Setting.zoneSettings = settings;
+    setZoneSettings(settings);
+    if (apply) await Backend.applySettings();
+  };
+
   return {
+    zoneSettings,
+    updateZone,
     hue,
     hue2,
     saturation,

@@ -9,6 +9,7 @@ import {
   RGBModeCapabilities,
   RunningApps,
 } from "../util";
+import { copyZoneSettings, ZoneSetting } from "../util/zoneSettings";
 import { LatestValueWriter } from "../util/latestValueWriter";
 
 export class RgbSetting {
@@ -21,6 +22,7 @@ export class RgbSetting {
   public hue2 = 0;
   public saturation2 = 100;
   public brightness2 = 100;
+  public zoneSettings: Record<string, ZoneSetting> = {};
   public secondaryZoneHue = 0;
   public secondaryZoneSaturation = 100;
   public secondaryZoneBrightness = 100;
@@ -38,6 +40,7 @@ export class RgbSetting {
     this.hue2 = source.hue2;
     this.saturation2 = source.saturation2;
     this.brightness2 = source.brightness2;
+    this.zoneSettings = copyZoneSettings(source.zoneSettings);
     this.secondaryZoneHue = source.secondaryZoneHue;
     this.secondaryZoneSaturation = source.secondaryZoneSaturation;
     this.secondaryZoneBrightness = source.secondaryZoneBrightness;
@@ -559,6 +562,9 @@ export class Setting {
 
   @Setting.readonlyProperty<number>("blue2")
   public static blue2: number;
+
+  @Setting.settingProperty<Record<string, ZoneSetting>>("zoneSettings")
+  public static zoneSettings: Record<string, ZoneSetting>;
 
   @Setting.settingProperty<number>("secondaryZoneHue")
   public static secondaryZoneHue: number;

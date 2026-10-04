@@ -1,3 +1,5 @@
+import { LatestValueWriter } from "./latestValueWriter";
+import { zoneSettingsToColors } from "./zoneSettings";
 import { Setting, SettingsData } from "../hooks";
 import { call } from "@decky/api";
 import { debounce } from "lodash";
@@ -9,12 +11,14 @@ import { shouldPersistHardwareState } from "./profilePolicy";
 export interface ZoneInfo {
   id: string;
   name_key: string;
+  name?: string;
 }
 
 export interface DeviceCapabilities {
   zones: ZoneInfo[];
   power_led: boolean;
   suspend_mode: boolean;
+  control_disable_turns_off?: boolean;
   custom_rgb?: boolean;  // Multi-zone custom RGB support (MSI, AyaNeo, ROG Ally, etc.)
   device_type?: "msi" | "ayaneo" | "rog_ally" | "generic";  // Device type for custom RGB implementation selection
   variant?: "standard" | "xbox";  // Device variant (e.g., "xbox" for Xbox Ally)
@@ -39,12 +43,8 @@ interface ApplyColorOptions {
   red2?: number;
   green2?: number;
   blue2?: number;
-  zoneColors?: {
-    secondary?: { r: number; g: number; b: number };
-  };
-  zoneEnabled?: {
-    secondary?: boolean;
-  };
+  zoneColors?: Record<string, { r: number; g: number; b: number }>;
+  zoneEnabled?: Record<string, boolean>;
   brightness?: number;
   speed?: string;
   brightnessLevel?: string;
@@ -132,7 +132,25 @@ export class Backend {
     });
   }
 
+  private static colorWriter = new LatestValueWriter<ApplyColorOptions>(
+    options => Backend.writeColor(options),
+    options => ({ ...options,
+      zoneColors: options.zoneColors ? Object.fromEntries(Object.entries(options.zoneColors).map(([id, color]) => [id, { ...color }])) : undefined,
+      zoneEnabled: options.zoneEnabled ? { ...options.zoneEnabled } : undefined,
+    }),
+  );
+
   private static applyColor(options: ApplyColorOptions = {}) {
+    const result = Backend.colorWriter.enqueue(options);
+    void result.catch(error => Logger.error(`HueSync RGB request failed: ${error}`));
+    return result;
+  }
+
+  public static turnOffLeds() {
+    return Backend.applyColor({ mode: RGBMode.disabled });
+  }
+
+  private static async writeColor(options: ApplyColorOptions = {}) {
     console.log(
       `Applying color: mode=${options.mode} r=${options.red} g=${options.green} b=${options.blue} r2=${options.red2} g2=${options.green2} b2=${options.blue2} zoneColors=${JSON.stringify(options.zoneColors)} init=${options.isInit} brightness=${options.brightness} speed=${options.speed} brightnessLevel=${options.brightnessLevel} persist=${options.persist}`,
     );
@@ -155,21 +173,12 @@ export class Backend {
     
     // Convert zoneColors format for backend
     // 将 zoneColors 格式转换为后端格式
-    const zoneColorsDict = zoneColors ? {
-      secondary: zoneColors.secondary ? {
-        R: zoneColors.secondary.r,
-        G: zoneColors.secondary.g,
-        B: zoneColors.secondary.b,
-      } : null,
-    } : null;
-    
-    // Convert zoneEnabled format for backend
-    // 将 zoneEnabled 格式转换为后端格式
-    const zoneEnabledDict = zoneEnabled ? {
-      secondary: zoneEnabled.secondary,
-    } : null;
-    
-    call<
+    const zoneColorsDict = zoneColors ? Object.fromEntries(
+      Object.entries(zoneColors).map(([id, color]) => [id, { R: color.r, G: color.g, B: color.b }])
+    ) : null;
+    const zoneEnabledDict = zoneEnabled ?? null;
+
+    const success = await call<
       [
         mode: string,
         r: number,
@@ -203,15 +212,8 @@ export class Backend {
       zoneColorsDict,
       zoneEnabledDict,
       persist,
-    )
-      .then((success) => {
-        if (!success) {
-          Logger.warn("HueSync backend did not apply the RGB state");
-        }
-      })
-      .catch((error) => {
-        Logger.error(`HueSync RGB request failed: ${error}`);
-      });
+    );
+    if (!success) throw new Error("HueSync backend did not apply the RGB state");
   }
 
   public static throwSuspendEvt() {
@@ -305,7 +307,7 @@ export class Backend {
     // 只有设备支持副区域时才构造区域参数
     const hasSecondaryZone = Setting.deviceCapabilities?.zones?.some(z => z.id === 'secondary');
 
-    const zoneColors = hasSecondaryZone &&
+    let zoneColors: Record<string, { r: number; g: number; b: number }> | undefined = hasSecondaryZone &&
                        Setting.secondaryZoneRed !== undefined && 
                        Setting.secondaryZoneGreen !== undefined && 
                        Setting.secondaryZoneBlue !== undefined
@@ -318,11 +320,20 @@ export class Backend {
         }
       : undefined;
 
-    const zoneEnabled = hasSecondaryZone
+    let zoneEnabled: Record<string, boolean> | undefined = hasSecondaryZone
       ? {
           secondary: Setting.secondaryZoneEnabled,
         }
       : undefined;
+
+    const additionalIds = Setting.deviceCapabilities?.zones
+      .filter(zone => zone.id !== "primary" && zone.id !== "secondary")
+      .map(zone => zone.id) ?? [];
+    if (additionalIds.length) {
+      const additional = zoneSettingsToColors(additionalIds, Setting.zoneSettings);
+      zoneColors = { ...zoneColors, ...additional.colors };
+      zoneEnabled = { ...zoneEnabled, ...additional.enabled };
+    }
 
     Backend.applyColor({
       mode: actualMode,

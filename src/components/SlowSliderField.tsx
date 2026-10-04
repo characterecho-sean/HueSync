@@ -1,6 +1,6 @@
 import { NotchLabel, SliderField } from "@decky/ui";
 import { ItemProps } from "@decky/ui/dist/components/Item";
-import { useEffect, useRef, useState, FC } from "react";
+import { useEffect, useRef, FC } from "react";
 
 export interface SlowSliderFieldProps extends ItemProps {
   value: number;
@@ -24,17 +24,14 @@ export interface SlowSliderFieldProps extends ItemProps {
   className?: string;
 }
 export const SlowSliderField: FC<SlowSliderFieldProps> = (slider) => {
-  const [changeValue, SetChangeValue] = useState<number>(slider.value);
-  const isChanging = useRef<Boolean>(false);
-  useEffect(() => {
-    setTimeout(() => {
-      //console.debug("changeValue=",changeValue,"slider=",slider.value)
-      if (changeValue == slider.value) {
-        slider.onChangeEnd?.call(slider, slider.value);
-        isChanging.current = false;
-      }
-    }, 500);
-  }, [changeValue]);
+  const onChangeEnd = useRef(slider.onChangeEnd);
+  onChangeEnd.current = slider.onChangeEnd;
+  const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Commit only user changes, using the latest callback/other HSV components.
+  // Opening the panel must not write the device or overwrite a loaded profile.
+  useEffect(() => () => {
+    if (pending.current !== undefined) clearTimeout(pending.current);
+  }, []);
   return (
     <SliderField
       value={slider.value}
@@ -60,10 +57,12 @@ export const SlowSliderField: FC<SlowSliderFieldProps> = (slider) => {
           tpvalue = slider.changeMax <= value ? slider.changeMax : value;
         if (slider.changeMin != undefined)
           tpvalue = slider.changeMin >= value ? slider.changeMin : value;
-        isChanging.current = true;
-        slider.onChange?.call(slider, tpvalue);
-        slider.value = tpvalue;
-        SetChangeValue(tpvalue);
+        slider.onChange?.(tpvalue);
+        if (pending.current !== undefined) clearTimeout(pending.current);
+        pending.current = setTimeout(() => {
+          pending.current = undefined;
+          onChangeEnd.current?.(tpvalue);
+        }, 500);
       }}
     />
   );
