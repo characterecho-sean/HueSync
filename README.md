@@ -21,6 +21,7 @@ LED controller for handheld devices
 - OneXPlayer
   - OneXFly
   - X1
+  - ONEXPLAYER 3 (kernel `hid-oxp` RGB interface; hardware testing pending)
 - Aokzoe
   - A1
   - A2
@@ -50,6 +51,47 @@ Similarly, Support for Ayn devices through [ayn-platform](https://github.com/Sha
   - Loki Max
 
 ## Custom RGB Effects
+
+### ONEXPLAYER 3
+
+ONEXPLAYER 3 uses `/sys/class/leds/oxp:rgb:joystick_rings` from the kernel's
+`hid-oxp` driver. HueSync controls both joystick rings as one primary zone:
+solid color, off, numeric brightness, software effects and the OneX hardware
+presets listed by the driver. Native presets also support animation speed.
+The backend reads channel order and value ranges from sysfs and uses the
+existing HueSync controls. Hardware preset brightness may change in steps,
+depending on the controller firmware.
+
+This model never falls back to generic OneX HID initialization, which can
+rewrite button mappings. If the required kernel RGB interface is missing,
+HueSync reports that dependency instead. It does not add EC, button mapping,
+rumble, power LED or per-ring controls. Custom multizone editing and auxiliary
+LEDs are not exposed on this kernel.
+
+The interface was inspected on an ONEXPLAYER 3 running CachyOS kernel
+`7.2.3-3-cachyos-deckify`: RGB order `red green blue`, brightness/intensity
+maxima `100`, speed range `0-9`, and the OneX presets including `monocolor`.
+Software checks cover this layout, reordered channels, different ranges,
+brightness zero, failures and reconnection. Physical RGB behavior is pending
+testing with the built plugin.
+
+For a local test build from this fork:
+
+```bash
+git submodule update --init --recursive
+pnpm install --frozen-lockfile
+pnpm test
+pnpm build
+sudo bash scripts/install_onexplayer3_test.sh
+```
+
+The test installer copies the local build into your Decky plugin directory,
+retains any previous HueSync plugin under `/var/lib/huesync-test/`, and restarts
+Decky. It leaves other plugins and user settings intact. In Gaming Mode, enable
+RGB control in HueSync and check red/green/blue, brightness, off/on, native
+presets and speed. Confirm the drawer and keyboard buttons still work, then
+check color restoration after suspend/resume. Sysfs read-back alone is not
+proof of a physical LED change; report the observed colors/effects.
 
 Some devices support advanced custom RGB effects with multi-frame animations and individual zone color control.
 

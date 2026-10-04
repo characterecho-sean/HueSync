@@ -20,6 +20,7 @@ from devices.legion_go_s import LegionGoSLEDDevice
 from devices.legion_go_tablet import LegionGoTabletLEDDevice
 from devices.msi import MSILEDDevice
 from devices.onexplayer import OneXLEDDevice
+from devices.onexplayer3 import OneXPlayer3LEDDevice
 from devices.zotac import ZotacLEDDevice
 from utils import Color, RGBMode, RGBModeCapabilities
 
@@ -123,6 +124,9 @@ class LedControl:
             or SYS_VENDOR == "ONE-NETBOOK TECHNOLOGY CO., LTD."
             or SYS_VENDOR == "AOKZOE"
         ):
+            if OneXPlayer3LEDDevice.matches_dmi(SYS_VENDOR, PRODUCT_NAME):
+                logger.info("Using ONEXPLAYER 3 kernel sysfs RGB device")
+                return OneXPlayer3LEDDevice()
             logger.info("Using OneX LED device (SYS_VENDOR)")
             return OneXLEDDevice()
         
