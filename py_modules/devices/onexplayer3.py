@@ -2,6 +2,7 @@
 from pathlib import Path
 import threading
 
+from config import logger
 from utils import Color, RGBMode, RGBModeCapabilities
 
 from .generic import GenericLEDDevice
@@ -144,11 +145,8 @@ class OneXPlayer3LEDDevice(GenericLEDDevice):
                             brightness=None, speed=None, **kwargs):
         with self._lock:
             self._require_interface()
-            # Replay complete settings on a UI/native transaction or resume.
-            self._cache.clear()
             if mode == RGBMode.Disabled:
-                self._write("brightness", 0)
-                self._write("enabled", "false")
+                self._set_zone_solid("primary", Color(0, 0, 0), enabled=False)
             elif mode == RGBMode.Solid:
                 self._set_solid_color(color)
             elif mode == RGBMode.OXP_CLASSIC:
@@ -174,9 +172,17 @@ class OneXPlayer3LEDDevice(GenericLEDDevice):
         unknown = (set(zone_colors or {}) | set(zone_enabled or {})) - set(OXP3_ZONES)
         if unknown:
             raise ValueError(f"Unknown ONEXPLAYER 3 RGB zones: {sorted(unknown)}")
+        logger.debug("ONEXPLAYER 3 RGB request: mode=%s color=%s zones=%s enabled=%s",
+                     mode, kwargs.get("color", args[1] if len(args) > 1 else None),
+                     zone_colors, zone_enabled)
         self.stop_effects()
         with self._lock:
-            self._cache.clear()
+            if kwargs.get("init", False):
+                self._cache.clear()
+            elif mode != self._current_mode:
+                # Only the primary zone changes effect; retain other zone caches.
+                self._cache = {key: value for key, value in self._cache.items()
+                               if isinstance(key, tuple) and key[0] != "primary"}
             self._zone_colors.update(zone_colors or {})
             self._zone_enabled.update(zone_enabled or {})
             for zone in OXP3_ZONES:
@@ -203,7 +209,8 @@ class OneXPlayer3LEDDevice(GenericLEDDevice):
     def get_device_capabilities(self):
         return {"zones": [{"id": zone, "name_key": "ZONE_PRIMARY_NAME", "name": label}
                           for zone, (_, label) in OXP3_ZONES.items()],
-                "power_led": False, "suspend_mode": False, "custom_rgb": False}
+                "power_led": False, "suspend_mode": False, "custom_rgb": False,
+                "control_disable_turns_off": True}
 
     def suspend(self, settings=None):
         self.stop_effects()

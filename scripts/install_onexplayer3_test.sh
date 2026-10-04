@@ -47,7 +47,14 @@ trap cleanup EXIT
 # Stage outside Decky's watched plugin directory and omit Git/cache metadata.
 tar -C "$source_dir" --exclude=.git --exclude=__pycache__ --exclude='*.pyc' \
     -cf - dist backend py_modules main.py plugin.json package.json README.md LICENSE | tar -C "$stage" -xf -
-bash "$source_dir/scripts/install_onexplayer3_rgb_driver.sh"
+driver_ready=false
+if [[ -r /sys/module/hid_oxp/version ]] &&
+   [[ $(cat /sys/module/hid_oxp/version) == 0.1.0 ]] &&
+   cmp -s "$source_dir/kernel/hid-oxp/hid-oxp.c" /usr/src/oxp3-hid-rgb-0.1.0/hid-oxp.c; then
+    driver_ready=true
+else
+    bash "$source_dir/scripts/install_onexplayer3_rgb_driver.sh"
+fi
 systemctl stop plugin_loader.service
 service_stopped=true
 if test -e "$plugin_dir"; then
@@ -61,4 +68,8 @@ systemctl is-active --quiet plugin_loader.service
 service_stopped=false
 echo "Local ONEXPLAYER 3 HueSync build installed: $plugin_dir"
 if "$old_moved"; then echo "Previous plugin saved: $backup"; fi
-echo 'Reboot, then enable HueSync RGB control in Gaming Mode and test each of the five zones.'
+if "$driver_ready"; then
+    echo 'Active RGB driver matches. Plugin update is ready; no reboot is needed.'
+else
+    echo 'Reboot, then enable HueSync RGB control in Gaming Mode and test each of the five zones.'
+fi

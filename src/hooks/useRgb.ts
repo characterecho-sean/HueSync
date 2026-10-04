@@ -92,7 +92,11 @@ export const useRgb = () => {
   const updateEnableControl = async (enableControl: boolean) => {
     setEnableControl(enableControl);
     Setting.enableControl = enableControl;
-    await Backend.applySettings({ isInit: true });
+    if (!enableControl && Setting.deviceCapabilities?.control_disable_turns_off) {
+      await Backend.turnOffLeds();
+    } else {
+      await Backend.applySettings({ isInit: true });
+    }
   };
 
   const updateLedEnabled = async (ledEnabled: boolean) => {

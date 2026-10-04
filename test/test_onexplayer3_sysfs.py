@@ -186,6 +186,45 @@ class OneXPlayer3Tests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Gen3"):
             OneXPlayer3LEDDevice()
 
+    def test_primary_slider_update_does_not_resend_unchanged_other_zones(self):
+        colors = {zone: Color(0, 0, 255) for zone in OXP3_ZONES if zone != "primary"}
+        self.device.set_color(RGBMode.Solid, Color(255, 0, 0), zone_colors=colors)
+        with patch.object(Path, "write_text", autospec=True, wraps=Path.write_text) as write:
+            self.device.set_color(RGBMode.Solid, Color(64, 64, 64), zone_colors=colors)
+            paths = [call.args[0] for call in write.call_args_list]
+            self.assertEqual(paths, [self.path / "multi_intensity"])
+
+    def test_identical_profile_does_not_write_but_init_replays(self):
+        self.device.set_color(RGBMode.Solid, Color(255, 0, 0))
+        with patch.object(Path, "write_text", autospec=True, wraps=Path.write_text) as write:
+            self.device.set_color(RGBMode.Solid, Color(255, 0, 0))
+            self.assertEqual(write.call_count, 0)
+            self.device.set_color(RGBMode.Solid, Color(255, 0, 0), init=True)
+            self.assertGreater(write.call_count, 0)
+
+    def test_zero_brightness_and_off_write_black_to_every_zone(self):
+        self.device.set_color(RGBMode.Solid, Color(255, 0, 0))
+        self.device.set_color(RGBMode.Disabled, Color(255, 0, 0))
+        for name, _ in OXP3_ZONES.values():
+            path = self.root / ("oxp:rgb:" + name)
+            self.assertEqual((path / "multi_intensity").read_text().strip(), "0 0 0")
+            self.assertEqual((path / "brightness").read_text().strip(), "0")
+        self.device.set_color(RGBMode.Solid, Color(64, 64, 64))
+        self.assertEqual(self.read("multi_intensity"), "25 25 25")
+        self.assertEqual(self.read("brightness"), "100")
+        self.assertEqual(self.read("enabled"), "true")
+
+    def test_current_kernel_ranges_keep_low_brightness_unsaturated_white(self):
+        for name, _ in OXP3_ZONES.values():
+            (self.root / ("oxp:rgb:" + name) / "multi_max_intensity").write_text("255 255 255\n")
+        self.device.resume()
+        colors = {zone: Color(64, 64, 64) for zone in OXP3_ZONES if zone != "primary"}
+        self.device.set_color(RGBMode.Solid, Color(64, 64, 64), zone_colors=colors, brightness=25)
+        for name, _ in OXP3_ZONES.values():
+            path = self.root / ("oxp:rgb:" + name)
+            self.assertEqual((path / "multi_intensity").read_text().strip(), "64 64 64")
+            self.assertEqual((path / "brightness").read_text().strip(), "100")
+
 
 if __name__ == "__main__":
     unittest.main()

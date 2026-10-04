@@ -1,3 +1,4 @@
+import { LatestValueWriter } from "./latestValueWriter";
 import { zoneSettingsToColors } from "./zoneSettings";
 import { Setting, SettingsData } from "../hooks";
 import { call } from "@decky/api";
@@ -17,6 +18,7 @@ export interface DeviceCapabilities {
   zones: ZoneInfo[];
   power_led: boolean;
   suspend_mode: boolean;
+  control_disable_turns_off?: boolean;
   custom_rgb?: boolean;  // Multi-zone custom RGB support (MSI, AyaNeo, ROG Ally, etc.)
   device_type?: "msi" | "ayaneo" | "rog_ally" | "generic";  // Device type for custom RGB implementation selection
   variant?: "standard" | "xbox";  // Device variant (e.g., "xbox" for Xbox Ally)
@@ -130,7 +132,25 @@ export class Backend {
     });
   }
 
+  private static colorWriter = new LatestValueWriter<ApplyColorOptions>(
+    options => Backend.writeColor(options),
+    options => ({ ...options,
+      zoneColors: options.zoneColors ? Object.fromEntries(Object.entries(options.zoneColors).map(([id, color]) => [id, { ...color }])) : undefined,
+      zoneEnabled: options.zoneEnabled ? { ...options.zoneEnabled } : undefined,
+    }),
+  );
+
   private static applyColor(options: ApplyColorOptions = {}) {
+    const result = Backend.colorWriter.enqueue(options);
+    void result.catch(error => Logger.error(`HueSync RGB request failed: ${error}`));
+    return result;
+  }
+
+  public static turnOffLeds() {
+    return Backend.applyColor({ mode: RGBMode.disabled });
+  }
+
+  private static async writeColor(options: ApplyColorOptions = {}) {
     console.log(
       `Applying color: mode=${options.mode} r=${options.red} g=${options.green} b=${options.blue} r2=${options.red2} g2=${options.green2} b2=${options.blue2} zoneColors=${JSON.stringify(options.zoneColors)} init=${options.isInit} brightness=${options.brightness} speed=${options.speed} brightnessLevel=${options.brightnessLevel} persist=${options.persist}`,
     );
@@ -158,7 +178,7 @@ export class Backend {
     ) : null;
     const zoneEnabledDict = zoneEnabled ?? null;
 
-    call<
+    const success = await call<
       [
         mode: string,
         r: number,
@@ -192,15 +212,8 @@ export class Backend {
       zoneColorsDict,
       zoneEnabledDict,
       persist,
-    )
-      .then((success) => {
-        if (!success) {
-          Logger.warn("HueSync backend did not apply the RGB state");
-        }
-      })
-      .catch((error) => {
-        Logger.error(`HueSync RGB request failed: ${error}`);
-      });
+    );
+    if (!success) throw new Error("HueSync backend did not apply the RGB state");
   }
 
   public static throwSuspendEvt() {

@@ -75,7 +75,8 @@ independent color, saturation, brightness and on/off controls:
 The mode selector applies to the left joystick. Other zones retain their own
 solid colors while the primary runs a software effect or a OneX preset. All
 zones turn off with the main lighting switch; individual choices are restored
-when it is turned back on. HSV brightness is applied once. Native preset
+when it is turned back on. Disabling RGB control on this model also sends an
+explicit all-zone off request. HSV brightness is applied once. Native preset
 brightness is limited to firmware steps. Software effects have a low refresh
 rate because the reviewed HID transport waits 200 ms between commands; use
 native presets for smooth firmware animations. Extra zones are saved per profile,
@@ -100,15 +101,24 @@ sudo bash scripts/install_onexplayer3_test.sh
 # Reboot through the Steam/KDE power menu.
 ```
 
-The installer stages the DKMS driver, rebuilds the initramfs, installs the local
+If the same driver is already active, the installer updates only HueSync and
+prints that no reboot is needed. On a first installation, it stages the DKMS
+driver, rebuilds the initramfs, installs the local
 HueSync build and restarts Decky. It requires an ONEXPLAYER 3 and retains any
 previous plugin under `/var/lib/huesync-test/`. It does not unload or rebind the
 live HID driver. Reboot to activate the new kernel module; HueSync cannot use
 the five-zone backend before that reboot.
 
+Sliders commit user changes without sending their mounted initial values.
+RGB requests wait for the backend and coalesce pending changes to the newest
+state. Unchanged zones are cached, so adjusting one zone does not rewrite all
+five. These changes prevent delayed slider updates from overwriting saturation,
+brightness, or a later off request.
+
 Software tests and a module build with extra compiler warnings pass on
-`7.2.9-1-cachyos-deckify`. **The corrected implementation still needs physical
-validation on this device.** After reboot, check red/green/blue and low/high
+`7.2.9-1-cachyos-deckify`. **Initial five-zone testing changed colors, but brightness, saturation and
+all-zone off were reported ineffective. The slider/request fixes now need
+physical retesting.** After reboot, check red/green/blue and low/high
 brightness on each zone, individual off/on, and the global switch. Test a
 primary native preset and speed, suspend/resume, and the drawer/keyboard
 buttons. Sysfs read-back alone is not proof of a physical LED change.
