@@ -1,3 +1,4 @@
+import { zoneSettingsToColors } from "./zoneSettings";
 import { Setting, SettingsData } from "../hooks";
 import { call } from "@decky/api";
 import { debounce } from "lodash";
@@ -9,6 +10,7 @@ import { shouldPersistHardwareState } from "./profilePolicy";
 export interface ZoneInfo {
   id: string;
   name_key: string;
+  name?: string;
 }
 
 export interface DeviceCapabilities {
@@ -39,12 +41,8 @@ interface ApplyColorOptions {
   red2?: number;
   green2?: number;
   blue2?: number;
-  zoneColors?: {
-    secondary?: { r: number; g: number; b: number };
-  };
-  zoneEnabled?: {
-    secondary?: boolean;
-  };
+  zoneColors?: Record<string, { r: number; g: number; b: number }>;
+  zoneEnabled?: Record<string, boolean>;
   brightness?: number;
   speed?: string;
   brightnessLevel?: string;
@@ -155,20 +153,11 @@ export class Backend {
     
     // Convert zoneColors format for backend
     // 将 zoneColors 格式转换为后端格式
-    const zoneColorsDict = zoneColors ? {
-      secondary: zoneColors.secondary ? {
-        R: zoneColors.secondary.r,
-        G: zoneColors.secondary.g,
-        B: zoneColors.secondary.b,
-      } : null,
-    } : null;
-    
-    // Convert zoneEnabled format for backend
-    // 将 zoneEnabled 格式转换为后端格式
-    const zoneEnabledDict = zoneEnabled ? {
-      secondary: zoneEnabled.secondary,
-    } : null;
-    
+    const zoneColorsDict = zoneColors ? Object.fromEntries(
+      Object.entries(zoneColors).map(([id, color]) => [id, { R: color.r, G: color.g, B: color.b }])
+    ) : null;
+    const zoneEnabledDict = zoneEnabled ?? null;
+
     call<
       [
         mode: string,
@@ -305,7 +294,7 @@ export class Backend {
     // 只有设备支持副区域时才构造区域参数
     const hasSecondaryZone = Setting.deviceCapabilities?.zones?.some(z => z.id === 'secondary');
 
-    const zoneColors = hasSecondaryZone &&
+    let zoneColors: Record<string, { r: number; g: number; b: number }> | undefined = hasSecondaryZone &&
                        Setting.secondaryZoneRed !== undefined && 
                        Setting.secondaryZoneGreen !== undefined && 
                        Setting.secondaryZoneBlue !== undefined
@@ -318,11 +307,20 @@ export class Backend {
         }
       : undefined;
 
-    const zoneEnabled = hasSecondaryZone
+    let zoneEnabled: Record<string, boolean> | undefined = hasSecondaryZone
       ? {
           secondary: Setting.secondaryZoneEnabled,
         }
       : undefined;
+
+    const additionalIds = Setting.deviceCapabilities?.zones
+      .filter(zone => zone.id !== "primary" && zone.id !== "secondary")
+      .map(zone => zone.id) ?? [];
+    if (additionalIds.length) {
+      const additional = zoneSettingsToColors(additionalIds, Setting.zoneSettings);
+      zoneColors = { ...zoneColors, ...additional.colors };
+      zoneEnabled = { ...zoneEnabled, ...additional.enabled };
+    }
 
     Backend.applyColor({
       mode: actualMode,

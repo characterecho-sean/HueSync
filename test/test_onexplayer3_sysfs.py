@@ -14,7 +14,7 @@ config.SOFTWARE_EFFECT_UPDATE_RATE = 30.0
 config.logger = logging.getLogger("huesync-oxp3-test")
 sys.modules["config"] = config
 
-from devices.onexplayer3 import OneXPlayer3LEDDevice, OXP3_EFFECTS
+from devices.onexplayer3 import OneXPlayer3LEDDevice, OXP3_EFFECTS, OXP3_ZONES
 from utils import Color, RGBMode
 
 
@@ -22,15 +22,21 @@ class OneXPlayer3Tests(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.path = Path(directory.name)
+        self.root = Path(directory.name)
+        self.path = self.root / "oxp:rgb:left_joystick"
         attrs = {"brightness": "100", "max_brightness": "100",
                  "multi_intensity": "36 34 153", "multi_max_intensity": "100 100 100",
                  "multi_index": "red green blue", "enabled": "true", "effect": "unknown",
                  "effect_index": "monocolor " + " ".join(OXP3_EFFECTS.values()),
                  "speed": "5", "speed_range": "0-9"}
-        for attr, value in attrs.items():
-            (self.path / attr).write_text(value + "\n")
-        patcher = patch("devices.onexplayer3.OXP3_LED_PATH", str(self.path))
+        for name, _ in OXP3_ZONES.values():
+            path = self.root / ("oxp:rgb:" + name)
+            path.mkdir()
+            for attr, value in attrs.items():
+                if name in ("guide_button", "top") and attr in ("enabled", "speed", "speed_range"):
+                    continue
+                (path / attr).write_text(value + "\n")
+        patcher = patch("devices.onexplayer3.OXP3_LED_ROOT", str(self.root))
         patcher.start()
         self.addCleanup(patcher.stop)
         self.device = OneXPlayer3LEDDevice()
@@ -122,7 +128,7 @@ class OneXPlayer3Tests(unittest.TestCase):
 
     def test_missing_interface_fails_without_generic_hid_fallback(self):
         (self.path / "effect").unlink()
-        with self.assertRaisesRegex(RuntimeError, "requires the hid-oxp"):
+        with self.assertRaisesRegex(RuntimeError, "requires the Gen3"):
             self.device.set_color(RGBMode.Solid, Color(255, 0, 0))
         self.assertFalse(self.device.supports_software_fallback)
 
@@ -137,12 +143,48 @@ class OneXPlayer3Tests(unittest.TestCase):
         self.assertFalse(self.device.matches_dmi("ONE-NETBOOK", "ONEXPLAYER X1"))
         self.assertFalse(self.device.matches_dmi("OTHER", "ONEXPLAYER 3"))
 
-    def test_only_one_zone_and_no_power_suspend_custom_controls(self):
+    def test_five_zones_and_no_power_suspend_custom_controls(self):
         caps = self.device.get_device_capabilities()
-        self.assertEqual(len(caps["zones"]), 1)
+        self.assertEqual(len(caps["zones"]), 5)
         self.assertFalse(caps["power_led"])
         self.assertFalse(caps["suspend_mode"])
         self.assertFalse(caps["custom_rgb"])
+
+    def test_independent_colors_and_disabled_zones(self):
+        self.device.set_color(RGBMode.Solid, Color(255, 0, 0),
+            zone_colors={"right_joystick": Color(0, 255, 0), "top": Color(0, 0, 255)},
+            zone_enabled={"guide_button": False})
+        self.assertEqual(self.read("multi_intensity"), "100 0 0")
+        self.assertEqual((self.root / "oxp:rgb:right_joystick/multi_intensity").read_text().strip(), "0 100 0")
+        self.assertEqual((self.root / "oxp:rgb:top/multi_intensity").read_text().strip(), "0 0 100")
+        self.assertEqual((self.root / "oxp:rgb:guide_button/brightness").read_text().strip(), "0")
+
+    def test_global_off_and_reenable_preserves_zone_choices(self):
+        self.device.set_color(RGBMode.Solid, Color(255, 0, 0), zone_colors={"top": Color(0, 0, 255)})
+        self.device.set_color(RGBMode.Disabled, Color(0, 0, 0))
+        for name, _ in OXP3_ZONES.values():
+            self.assertEqual((self.root / ("oxp:rgb:" + name) / "brightness").read_text().strip(), "0")
+        self.device.set_color(RGBMode.Solid, Color(255, 0, 0))
+        self.assertEqual((self.root / "oxp:rgb:top/multi_intensity").read_text().strip(), "0 0 100")
+        self.assertEqual((self.root / "oxp:rgb:top/brightness").read_text().strip(), "100")
+
+    def test_missing_named_zone_and_unknown_id_are_rejected(self):
+        with self.assertRaises(ValueError):
+            self.device.set_color(RGBMode.Solid, Color(255, 0, 0), zone_colors={"made_up": Color(0, 0, 0)})
+        (self.root / "oxp:rgb:top/effect").unlink()
+        self.device.resume()
+        with self.assertRaisesRegex(RuntimeError, "Missing Gen3 RGB zone"):
+            self.device.set_color(RGBMode.Solid, Color(255, 0, 0))
+
+    def test_software_primary_frame_does_not_change_other_zones(self):
+        self.device.set_color(RGBMode.Solid, Color(255, 0, 0), zone_colors={"top": Color(0, 0, 255)})
+        self.device._set_solid_color(Color(0, 255, 0))
+        self.assertEqual((self.root / "oxp:rgb:top/multi_intensity").read_text().strip(), "0 0 100")
+
+    def test_old_aggregate_interface_is_not_treated_as_working(self):
+        self.path.rename(self.root / "oxp:rgb:joystick_rings")
+        with self.assertRaisesRegex(RuntimeError, "Gen3"):
+            OneXPlayer3LEDDevice()
 
 
 if __name__ == "__main__":

@@ -8,11 +8,6 @@ if [[ $(cat /sys/class/dmi/id/product_name) != 'ONEXPLAYER 3' ]] ||
    [[ $(cat /sys/class/dmi/id/sys_vendor) != 'ONE-NETBOOK' ]]; then
     echo 'This test installer targets the evaluated ONEXPLAYER 3' >&2; exit 1
 fi
-for attr in effect multi_intensity brightness enabled; do
-    test -f "/sys/class/leds/oxp:rgb:joystick_rings/$attr" || {
-        echo "Missing kernel RGB interface: $attr" >&2; exit 1;
-    }
-done
 for file in dist/index.js main.py plugin.json package.json py_modules/lib_hid/__init__.py py_modules/serial/__init__.py; do
     test -f "$source_dir/$file" || { echo "Incomplete local build: $file" >&2; exit 1; }
 done
@@ -52,6 +47,7 @@ trap cleanup EXIT
 # Stage outside Decky's watched plugin directory and omit Git/cache metadata.
 tar -C "$source_dir" --exclude=.git --exclude=__pycache__ --exclude='*.pyc' \
     -cf - dist backend py_modules main.py plugin.json package.json README.md LICENSE | tar -C "$stage" -xf -
+bash "$source_dir/scripts/install_onexplayer3_rgb_driver.sh"
 systemctl stop plugin_loader.service
 service_stopped=true
 if test -e "$plugin_dir"; then
@@ -65,4 +61,4 @@ systemctl is-active --quiet plugin_loader.service
 service_stopped=false
 echo "Local ONEXPLAYER 3 HueSync build installed: $plugin_dir"
 if "$old_moved"; then echo "Previous plugin saved: $backup"; fi
-echo 'In Gaming Mode, open HueSync and enable RGB control; test solid colors, off and OneX presets.'
+echo 'Reboot, then enable HueSync RGB control in Gaming Mode and test each of the five zones.'

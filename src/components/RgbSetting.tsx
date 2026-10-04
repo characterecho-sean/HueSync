@@ -25,7 +25,7 @@ interface ColorControlsProps {
   hue2?: number;
   setHue2?: (h: number, immediate?: boolean) => void;
   onlyBrightness?: boolean;
-  zone?: 'primary' | 'secondary';  // New: zone identifier for CSS class names
+  zone?: string;  // New: zone identifier for CSS class names
 }
 
 const ColorControls: FC<ColorControlsProps> = ({
@@ -175,6 +175,8 @@ const ColorControls: FC<ColorControlsProps> = ({
 
 export const RGBComponent: FC = () => {
   const {
+    zoneSettings,
+    updateZone,
     hue,
     hue2,
     saturation,
@@ -595,7 +597,7 @@ export const RGBComponent: FC = () => {
             currentModeCapabilities.speed ||
             currentModeCapabilities.brightness_level) && (
               <PanelSection
-                title={localizationManager.getString(localizeStrEnum.ZONE_PRIMARY_NAME)}
+                title={Setting.deviceCapabilities?.zones.find(zone => zone.id === "primary")?.name ?? localizationManager.getString(localizeStrEnum.ZONE_PRIMARY_NAME)}
               >
                 {(currentModeCapabilities.color ||
                   currentModeCapabilities.brightness) && (
@@ -623,6 +625,23 @@ export const RGBComponent: FC = () => {
                 )}
               </PanelSection>
             )}
+
+          {Setting.deviceCapabilities?.zones.filter(zone =>
+            zone.id !== "primary" && zone.id !== "secondary" && currentModeCapabilities.zones?.includes(zone.id)
+          ).map(zone => {
+            const settings = zoneSettings[zone.id] ?? { hue: 0, saturation: 100, brightness: 100, enabled: true };
+            return (
+              <div key={zone.id}><PanelSection title={zone.name ?? zone.id}>
+                <PanelSectionRow>
+                  <ToggleField label={localizationManager.getString(localizeStrEnum.ENABLE_LED_CONTROL)}
+                    checked={settings.enabled} onChange={enabled => { updateZone(zone.id, { enabled }); }} />
+                </PanelSectionRow>
+                {settings.enabled && <ColorControls hue={settings.hue} saturation={settings.saturation}
+                  brightness={settings.brightness} supportsColor2={false} onlyBrightness={false} zone={zone.id}
+                  setHsv={(hue, saturation, brightness, apply = true) => updateZone(zone.id, { hue, saturation, brightness }, apply)} />}
+              </PanelSection></div>
+            );
+          })}
 
           {/* Secondary Zone Section | 副区域设置 */}
           {hasSecondaryZone && secondaryZoneNameKey && (

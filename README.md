@@ -21,7 +21,7 @@ LED controller for handheld devices
 - OneXPlayer
   - OneXFly
   - X1
-  - ONEXPLAYER 3 (kernel `hid-oxp` RGB interface; hardware testing pending)
+  - ONEXPLAYER 3 (Gen3 `hid-oxp` DKMS update; five-zone hardware testing pending)
 - Aokzoe
   - A1
   - A2
@@ -54,28 +54,42 @@ Similarly, Support for Ayn devices through [ayn-platform](https://github.com/Sha
 
 ### ONEXPLAYER 3
 
-ONEXPLAYER 3 uses `/sys/class/leds/oxp:rgb:joystick_rings` from the kernel's
-`hid-oxp` driver. HueSync controls both joystick rings as one primary zone:
-solid color, off, numeric brightness, software effects and the OneX hardware
-presets listed by the driver. Native presets also support animation speed.
-The backend reads channel order and value ranges from sysfs and uses the
-existing HueSync controls. Hardware preset brightness may change in steps,
-depending on the controller firmware.
+The original test using the stock `oxp:rgb:joystick_rings` interface failed on
+hardware: HueSync accepted changes, but the LEDs did not change. The installed
+CachyOS `7.2.9-1-cachyos-deckify` driver uses the older RGB protocol and does not
+expose this model's auxiliary zones.
 
-This model never falls back to generic OneX HID initialization, which can
-rewrite button mappings. If the required kernel RGB interface is missing,
-HueSync reports that dependency instead. It does not add EC, button mapping,
-rumble, power LED or per-ring controls. Custom multizone editing and auxiliary
-LEDs are not exposed on this kernel.
+This fork includes a corrected `hid-oxp` DKMS driver in
+[`kernel/hid-oxp`](kernel/hid-oxp/README.md). It uses the published Gen3 driver
+fixes and the OXP3 zone addresses from OneXConsole. HueSync exposes five
+independent color, saturation, brightness and on/off controls:
 
-The interface was inspected on an ONEXPLAYER 3 running CachyOS kernel
-`7.2.3-3-cachyos-deckify`: RGB order `red green blue`, brightness/intensity
-maxima `100`, speed range `0-9`, and the OneX presets including `monocolor`.
-Software checks cover this layout, reordered channels, different ranges,
-brightness zero, failures and reconnection. Physical RGB behavior is pending
-testing with the built plugin.
+| HueSync area | Firmware zone | Kernel LED name |
+| --- | --- | --- |
+| Left joystick (primary effect controls) | 1 | `oxp:rgb:left_joystick` |
+| Right joystick | 2 | `oxp:rgb:right_joystick` |
+| G button | 5 | `oxp:rgb:guide_button` |
+| Top lighting | 6 | `oxp:rgb:top` |
+| Controller connector | 7 | `oxp:rgb:controller_connector` |
 
-For a local test build from this fork:
+The mode selector applies to the left joystick. Other zones retain their own
+solid colors while the primary runs a software effect or a OneX preset. All
+zones turn off with the main lighting switch; individual choices are restored
+when it is turned back on. HSV brightness is applied once. Native preset
+brightness is limited to firmware steps. Software effects have a low refresh
+rate because the reviewed HID transport waits 200 ms between commands; use
+native presets for smooth firmware animations. Extra zones are saved per profile,
+including separate AC/battery profiles. A custom animation editor is not
+exposed for this device.
+
+The backend requires all five corrected LED interfaces and reports a driver
+update dependency if only the old aggregate interface exists. It never uses
+legacy OneX HID initialization or writes EC registers. The kernel driver
+includes the reviewed controller lifecycle/acknowledgment fixes required by
+the Gen3 RGB implementation; its source and local delta are provided for review.
+
+For a local build and installation from this fork (DKMS, GCC and matching
+kernel headers must already be installed):
 
 ```bash
 git submodule update --init --recursive
@@ -83,15 +97,25 @@ pnpm install --frozen-lockfile
 pnpm test
 pnpm build
 sudo bash scripts/install_onexplayer3_test.sh
+# Reboot through the Steam/KDE power menu.
 ```
 
-The test installer copies the local build into your Decky plugin directory,
-retains any previous HueSync plugin under `/var/lib/huesync-test/`, and restarts
-Decky. It leaves other plugins and user settings intact. In Gaming Mode, enable
-RGB control in HueSync and check red/green/blue, brightness, off/on, native
-presets and speed. Confirm the drawer and keyboard buttons still work, then
-check color restoration after suspend/resume. Sysfs read-back alone is not
-proof of a physical LED change; report the observed colors/effects.
+The installer stages the DKMS driver, rebuilds the initramfs, installs the local
+HueSync build and restarts Decky. It requires an ONEXPLAYER 3 and retains any
+previous plugin under `/var/lib/huesync-test/`. It does not unload or rebind the
+live HID driver. Reboot to activate the new kernel module; HueSync cannot use
+the five-zone backend before that reboot.
+
+Software tests and a module build with extra compiler warnings pass on
+`7.2.9-1-cachyos-deckify`. **The corrected implementation still needs physical
+validation on this device.** After reboot, check red/green/blue and low/high
+brightness on each zone, individual off/on, and the global switch. Test a
+primary native preset and speed, suspend/resume, and the drawer/keyboard
+buttons. Sysfs read-back alone is not proof of a physical LED change.
+
+To remove the replacement kernel module, run
+`sudo bash scripts/uninstall_onexplayer3_rgb_driver.sh` and reboot. Restore the
+previous HueSync plugin from the printed backup path if needed.
 
 Some devices support advanced custom RGB effects with multi-frame animations and individual zone color control.
 
